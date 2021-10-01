@@ -1,0 +1,28 @@
+{
+  "name": "message",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon ./index.js",
+    "start": "node ./index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.0.1",
+    "dotenv": "^10.0.0",
+    "enmap": "^5.8.7",
+    "fs": "0.0.1-security",
+    "koa": "^2.13.3",
+    "koa-bodyparser": "^4.3.0",
+    "koa-roles": "^2.0.0",
+    "koa-router": "^10.1.1",
+    "koa-session": "^6.2.0",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.13"
+  }
+}
