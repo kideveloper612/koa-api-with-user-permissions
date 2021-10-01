@@ -1,6 +1,5 @@
 const Koa = require("koa");
 const bodyParser = require("koa-bodyparser");
-const Roles = require("koa-roles");
 const Router = require("koa-router");
 const fs = require("fs");
 const path = require("path");
@@ -106,7 +105,7 @@ router.post("/login", async (ctx) => {
 
 router.get("/logout", async (ctx) => {
     ctx.session = null;
-    ctx.body("Logged out");
+    ctx.body = "Logged out";
 });
 
 router.get("/secret", async (ctx) => {
@@ -116,26 +115,6 @@ router.get("/secret", async (ctx) => {
     } was authorized successfully`;
 });
 
-const user = new Roles({
-    async failureHandler(ctx, action) {
-        // user fails authorisation
-        ctx.status = 403;
-        var t = ctx.accepts("json", "html");
-        if (t === "json") {
-            ctx.body = {
-                message:
-                    "Access Denied - You don't have permission to: " + action,
-            };
-        } else if (t === "html") {
-            ctx.render("access-denied", { action: action });
-        } else {
-            ctx.body =
-                "Access Denied - You don't have permission to: " + action;
-        }
-    },
-});
-
-app.use(user.middleware());
 app.use(
     bodyParser({
         multipart: true,
@@ -145,91 +124,96 @@ app.use(
 
 const PORT = process.env.PORT;
 
-// anonymous users can only access the messages endpoint
-user.use(async (ctx, action) => {
-    return ctx.user || action === "access messages";
-});
+router.post("/messages", async (ctx) => {
+    console.log(ctx.session);
 
-//admin users can access all endpoints
-user.use((ctx, action) => {
-    if (ctx.user.role === "admin") {
-        return true;
-    }
-});
+    if (
+        typeof ctx.session === "undefined" ||
+        Object.keys(ctx.session).length === 0
+    )
+        ctx.body = "No Authenticated";
 
-router.post("/messages", user.can("access messages"), async (ctx) => {
     let from = ctx.request.body.from;
     let to = ctx.request.body.to;
     let message = ctx.request.body.message;
 
-    console.log(ctx.request.body);
-
     let writeJson = () => {
         return new Promise((resolve, reject) => {
-            fs.readFile(
-                path.join(__dirname, "/messages.json"),
-                function (err, data) {
-                    if (err) {
-                        resolve({ code: -1, msg: "New failure" + err });
-                        return console.error(err);
-                    }
-
-                    let jsonData = data.toString();
-                    jsonData = JSON.parse(jsonData);
-
-                    jsonData.push({
-                        from: from,
-                        to: to,
-                        message: message,
-                    });
-
-                    let str = JSON.stringify(jsonData);
-                    fs.writeFile(
-                        path.join(__dirname, "/messages.json"),
-                        str,
-                        function (err) {
-                            if (err) {
-                                resolve({ code: -1, msg: "New failure" + err });
-                            }
-                            resolve({ code: 0, msg: "New success" });
+            if (ctx.session && ctx.session.logged === true) {
+                fs.readFile(
+                    path.join(__dirname, "/messages.json"),
+                    function (err, data) {
+                        if (err) {
+                            resolve({ code: -1, msg: "New failure" + err });
+                            return console.error(err);
                         }
-                    );
-                }
-            );
+
+                        let jsonData = data.toString();
+                        jsonData = JSON.parse(jsonData);
+
+                        jsonData.push({
+                            from: from,
+                            to: to,
+                            message: message,
+                        });
+
+                        let str = JSON.stringify(jsonData);
+                        fs.writeFile(
+                            path.join(__dirname, "/messages.json"),
+                            str,
+                            function (err) {
+                                if (err) {
+                                    resolve({
+                                        code: -1,
+                                        msg: "New failure" + err,
+                                    });
+                                }
+                                resolve({ code: 0, msg: "New success" });
+                            }
+                        );
+                    }
+                );
+            } else resolve({ code: -1, msg: "No Auth" });
         });
     };
 
     ctx.body = await writeJson();
 });
 
-router.get("/stats", user.can("admin"), async (ctx) => {
+router.get("/stats", async (ctx) => {
     let statsJson = () => {
         return new Promise((resolve, reject) => {
-            fs.readFile(
-                path.join(__dirname, "/messages.json"),
-                function (err, data) {
-                    if (err) {
-                        resolve({ code: -1, msg: "Query failed" + err });
-                        return console.error(err);
-                    }
+            if (ctx.session && ctx.session.logged === true) {
+                if (ctx.session.admin === true)
+                    fs.readFile(
+                        path.join(__dirname, "/messages.json"),
+                        function (err, data) {
+                            if (err) {
+                                resolve({
+                                    code: -1,
+                                    msg: "Query failed" + err,
+                                });
+                                return console.error(err);
+                            }
 
-                    let jsonData = data.toString();
-                    jsonData = JSON.parse(jsonData);
+                            let jsonData = data.toString();
+                            jsonData = JSON.parse(jsonData);
 
-                    responseData = {
-                        numberOfCalls: jsonData.length,
-                        lastMessage: jsonData[jsonData.length - 1],
-                    };
-                    resolve({ code: 0, data: responseData });
-                }
-            );
+                            responseData = {
+                                numberOfCalls: jsonData.length,
+                                lastMessage: jsonData[jsonData.length - 1],
+                            };
+                            resolve({ code: 0, data: responseData });
+                        }
+                    );
+                else resolve({ code: -1, msg: "No permission" });
+            } else resolve({ code: -1, msg: "No Auth" });
         });
     };
 
-    ctx.body = await statsJson();
+    if (ctx.session) ctx.body = await statsJson();
 });
 
-// router.use("/", deploy.routes(), deploy.allowedMethods());
 app.use(router.routes()).use(router.allowedMethods());
 
 app.on("error", (err, ctx) => {
