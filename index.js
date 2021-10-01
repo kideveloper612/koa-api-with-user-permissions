@@ -13,34 +13,31 @@ const router = new Router();
 const Enmap = require("enmap");
 const users = new Enmap({ name: "users" });
 
-// Bcrypt's hashing system
 const bcrypt = require("bcrypt");
 
-// The default "sessions" support.
 const session = require("koa-session");
 
-const newuser = (username, name, plainpw, admin = false) => {
-    if (users.has(username))
-        return new Promise((resp) => resp(`User ${username} already exists!`));
-
-    return new Promise((resp) => {
-        resp(
+const newuser = (username, name = "", plainpw, admin = false) => {
+    return new Promise((resp, rejt) => {
+        if (users.has(username)) rejt(`User ${username} already exists!`);
+        else
             bcrypt.hash(plainpw, 10, (err, password) => {
-                if (err) throw err;
-                users.set(username, {
-                    username,
-                    name,
-                    password,
-                    admin,
-                    created: Date.now(),
-                });
-            })
-        );
+                if (err) rejt(err);
+                resp(
+                    users.set(username, {
+                        username,
+                        name,
+                        password,
+                        admin,
+                        created: Date.now(),
+                    })
+                );
+            });
     });
 };
 
 const login = (username, password) => {
-    const user = this.users.get(username);
+    const user = users.get(username);
     if (!user) return new Promise((resp) => resp(false));
     if (!password) return new Promise((resp) => resp(false));
     return bcrypt.compare(password, user.password);
@@ -50,80 +47,73 @@ app.keys = [process.env.SECRET_KEY];
 app.use(session(app));
 
 router.post("/register", async (ctx) => {
-    // Fail if there is no username and password.
-    // This relies on koa-bodyparser
     if (!ctx.request.body.username || !ctx.request.body.password) {
         ctx.throw(400, "Missing Username or Password");
     }
-    // Use our login function to verify the username/password is correct
-    const success = await newuser(
+
+    return newuser(
         ctx.request.body.username,
         ctx.request.body.name,
         ctx.request.body.password,
         ctx.request.body.admin
-    );
+    )
+        .then(() => {
+            const user = users.get(ctx.request.body.username);
 
-    if (success) {
-        // get the user's information
-        const user = users.get(ctx.request.body.username);
-        // Set all our session parameters:
-        ctx.session.logged = true;
-        ctx.session.username = ctx.request.body.username;
-        ctx.session.admin = user.admin;
-        ctx.session.name = user.name;
-        // Save the session itself. This sets the cookie in the browser,
-        // as well as save into the sessions in memory.
-        ctx.session.save();
-        console.log(`User authenticated: ${user.username}`);
-        // Once logged in, redirect to the secret page.
-        ctx.redirect("/secret");
-    } else {
-        console.log("Authentication Failed");
-        // Throw if the above login returns false.
-        ctx.throw(403, "Nope. Not allowed, mate.");
-    }
+            ctx.session.logged = true;
+            ctx.session.username = ctx.request.body.username;
+            ctx.session.admin = user.admin;
+            ctx.session.name = user.name;
+
+            ctx.session.save();
+
+            ctx.body = `${
+                ctx.session.admin ? "Admin" : "User"
+            } was registered successfully`;
+        })
+        .catch((err) => {
+            ctx.throw(400, err.message);
+        });
 });
 
 router.post("/login", async (ctx) => {
-    // Fail if there is no username and password.
-    // This relies on koa-bodyparser
     if (!ctx.request.body.username || !ctx.request.body.password) {
         ctx.throw(400, "Missing Username or Password");
     }
-    // Use our login function to verify the username/password is correct
+
     const success = await login(
         ctx.request.body.username,
         ctx.request.body.password
     );
+
     if (success) {
-        // get the user's information
         const user = users.get(ctx.request.body.username);
-        // Set all our session parameters:
+
         ctx.session.logged = true;
         ctx.session.username = ctx.request.body.username;
         ctx.session.admin = user.admin;
         ctx.session.name = user.name;
-        // Save the session itself. This sets the cookie in the browser,
-        // as well as save into the sessions in memory.
+
         ctx.session.save();
         console.log(`User authenticated: ${user.username}`);
-        // Once logged in, redirect to the secret page.
+
         ctx.redirect("/secret");
     } else {
         console.log("Authentication Failed");
-        // Throw if the above login returns false.
         ctx.throw(403, "Nope. Not allowed, mate.");
     }
 });
 
 router.get("/logout", async (ctx) => {
     ctx.session = null;
-    ctx.redirect("/");
+    ctx.body("Logged out");
 });
 
 router.get("/secret", async (ctx) => {
     if (!ctx.session.logged) ctx.throw(403, "Unauthorized to view this page");
-    await ctx.render("secret");
+    ctx.body = `${
+        ctx.session.admin ? "Admin" : "User"
+    } was authorized successfully`;
 });
 
 const user = new Roles({
